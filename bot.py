@@ -1,8 +1,8 @@
 import logging
 import os
 import asyncio
-import datetime
 import html
+from flask import Flask, request
 from aiogram import Bot, Dispatcher, types
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import Command
@@ -12,28 +12,17 @@ from database import init_db, get_db_connection
 from handlers.start import start_command, aide_command, handle_aide
 from handlers.feedback import feedback_command, receive_feedback
 from handlers.annonces import (
-    soumettre_annonce_command,
-    set_title,
-    set_description,
-    set_lien,
-    set_hashtags,
-    confirm_annonce,
-    lister_annonces_command,
-    gestion_annonce,
-    handle_soumettre,
-    handle_lister_annonces,
-    AnnonceForm,
-    share_approved_annonces
+    soumettre_annonce_command, set_title, set_description, set_lien,
+    set_hashtags, confirm_annonce, lister_annonces_command, gestion_annonce,
+    handle_soumettre, handle_lister_annonces, AnnonceForm, share_approved_annonces
 )
 from handlers.parametres import (
-    parametres_command,
-    toggle_recurrence,
-    handle_retour,
-    handle_niveaux
+    parametres_command, toggle_recurrence, handle_retour, handle_niveaux
 )
 
 # Charger les variables d'environnement
 load_dotenv()
+
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 GROUP_ID = os.getenv("GROUP_ID")
@@ -52,7 +41,7 @@ except ValueError:
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 
-# Initialiser le bot
+# Initialiser le bot et le dispatcher
 bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot=bot, storage=storage)
@@ -60,10 +49,11 @@ dp = Dispatcher(bot=bot, storage=storage)
 # Initialiser la base de données
 init_db()
 
+# Créer l'application Flask pour gérer les requêtes webhook
+app = Flask(__name__)
+
+# Échapper les caractères HTML spéciaux dans le texte
 def escape_html(text):
-    """
-    Échappe les caractères HTML spéciaux dans le texte donné.
-    """
     return html.escape(text)
 
 # Enregistrement des gestionnaires de commandes avec le filtre Command
@@ -78,7 +68,7 @@ dp.message.register(lister_annonces_command, Command(commands=["lister_annonces"
 dp.callback_query.register(gestion_annonce, lambda callback_query: callback_query.data.startswith(("approuver_", "rejeter_")))
 dp.message.register(aide_command, Command(commands=["aide"]))
 dp.message.register(feedback_command, Command(commands=["feedback"]))
-dp.message.register(receive_feedback)  # Enregistrement direct
+dp.message.register(receive_feedback)
 
 # Enregistrement des gestionnaires pour les boutons interactifs
 dp.callback_query.register(handle_soumettre, lambda callback_query: callback_query.data == "soumettre")
@@ -92,14 +82,15 @@ dp.callback_query.register(handle_niveaux, lambda callback_query: callback_query
 # Gestionnaire d'erreurs
 dp.errors.register(handle_errors)
 
-# Fonction principale pour démarrer le bot
-async def main():
-    logging.info("Starting bot...")
-    
-    # Lancer la tâche périodique avec bot et GROUP_ID
-    asyncio.create_task(share_approved_annonces(bot, GROUP_ID))
-    
-    await dp.start_polling(bot)
+# Route pour gérer les requêtes webhook de Telegram
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    json_update = request.get_json()
+    update = types.Update(**json_update)
+    asyncio.run(dp.process_update(update))
+    return 'ok'
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# Fonction principale pour démarrer le bot
+if __name__ == '__main__':
+    # Lancer Flask
+    app.run(host='0.0.0.0', port=5000)
