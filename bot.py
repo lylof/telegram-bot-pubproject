@@ -87,10 +87,19 @@ dp.errors.register(handle_errors)
 def webhook():
     json_update = request.get_json()
     update = types.Update(**json_update)
-    asyncio.run(dp.process_update(update))
+    
+    asyncio.create_task(dp.process_update(update))  # Utiliser asyncio.create_task pour éviter les erreurs d'événement
     return 'ok'
 
 # Fonction principale pour démarrer le bot
+async def main():
+    await dp.start_polling()
+
 if __name__ == '__main__':
-    # Lancer Flask
-    app.run(host='0.0.0.0', port=5000)
+    # Lancer Flask en parallèle avec le bot
+    flask_task = asyncio.create_task(app.run(host='0.0.0.0', port=5000))
+
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
